@@ -17,17 +17,23 @@ export default function FileUpload({ onFileSelect, isLoading, format }: FileUplo
         (acceptedFiles: File[]) => {
             const file = acceptedFiles[0]
             if (file) {
+                // Check if format is PDF and file is not a PDF
+                if (format === 'pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                    alert('Please select a PDF file for PDF compression')
+                    return
+                }
                 setSelectedFile(file)
                 onFileSelect(file)
             }
         },
-        [onFileSelect]
+        [onFileSelect, format]
     )
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
         onDrop,
         disabled: isLoading,
         multiple: false,
+        accept: format === 'pdf' ? { 'application/pdf': ['.pdf'] } : undefined
     })
 
     return (
@@ -48,7 +54,9 @@ export default function FileUpload({ onFileSelect, isLoading, format }: FileUplo
                 {isLoading ? (
                     <div className="py-10 flex flex-col items-center">
                         <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-                        <p className="text-gray-600 dark:text-gray-300">Compressing your file...</p>
+                        <p className="text-gray-600 dark:text-gray-300">
+                            {format === 'pdf' ? 'Optimizing PDF...' : 'Compressing your file...'}
+                        </p>
                     </div>
                 ) : (
                     <div className="py-10">
@@ -68,19 +76,19 @@ export default function FileUpload({ onFileSelect, isLoading, format }: FileUplo
                         <div className="space-y-2">
                             <p className="text-lg font-medium">
                                 {isDragActive
-                                    ? 'Drop your file here'
+                                    ? `Drop your ${format === 'pdf' ? 'PDF' : 'file'} here`
                                     : selectedFile
                                         ? `${selectedFile.name} selected`
-                                        : 'Drag & drop your file here'}
+                                        : `Drag & drop your ${format === 'pdf' ? 'PDF' : 'file'} here`}
                             </p>
                             <p className="text-sm text-gray-500 dark:text-gray-400">
                                 {selectedFile ? 'Click to select a different file' : 'or click to browse'}
                             </p>
                             <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                                Any file type supported • Max size: 100MB
+                                {format === 'pdf' ? 'PDF files only' : 'Any file type supported'} • Max size: 100MB
                             </p>
                             <p className="text-xs font-medium text-primary mt-1">
-                                Will be compressed as .{format.toLowerCase()}
+                                {format === 'pdf' ? 'Will be optimized as PDF' : `Will be compressed as .${format.toLowerCase()}`}
                             </p>
                         </div>
                     </div>

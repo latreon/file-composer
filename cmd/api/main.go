@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -154,7 +155,7 @@ func removeOldFiles(dir string) {
 
 // handleGetFormats returns the supported compression formats
 func handleGetFormats(w http.ResponseWriter, r *http.Request) {
-	formats := []string{"zip", "tar", "gz", "bz2", "xz"}
+	formats := []string{"pdf", "zip", "tar", "gz", "bz2", "xz", "png", "jpg", "jpeg"}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -175,13 +176,6 @@ func handleCompressFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get compression format from form
-	format := r.FormValue("format")
-	if format == "" {
-		format = "zip" // Default format
-	}
-	log.Printf("Using compression format: %s", format)
-
 	// Get the file from the request
 	file, handler, err := r.FormFile("file")
 	if err != nil {
@@ -190,6 +184,33 @@ func handleCompressFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+
+	// Get compression format from form, if not specified, determine from file type
+	format := r.FormValue("format")
+	if format == "" {
+		// If no format specified (auto-select), use the original file extension
+		ext := strings.ToLower(filepath.Ext(handler.Filename))
+		if ext != "" {
+			format = ext[1:] // Remove the dot from extension
+		} else {
+			format = "zip" // Fallback to zip if no extension
+		}
+	}
+
+	log.Printf("Using compression format: %s", format)
+
+	// Check if the file is a PDF when PDF compression is selected
+	if format == "pdf" && !strings.HasSuffix(strings.ToLower(handler.Filename), ".pdf") {
+		respondWithError(w, http.StatusBadRequest, "PDF compression can only be used with PDF files")
+		return
+	}
+
+	// Check if the file is an image when image compression is selected
+	if (format == "png" || format == "jpg" || format == "jpeg") && 
+	   !strings.HasSuffix(strings.ToLower(handler.Filename), "."+format) {
+		respondWithError(w, http.StatusBadRequest, fmt.Sprintf("%s compression can only be used with %s files", format, format))
+		return
+	}
 
 	log.Printf("Received file: %s (%d bytes)", handler.Filename, handler.Size)
 
@@ -223,13 +244,13 @@ func handleCompressFile(w http.ResponseWriter, r *http.Request) {
 	}
 	inputSize := fileInfo.Size()
 
-	// Generate output filename
-	outputFilename := fmt.Sprintf("%d_%s.%s", timestamp, handler.Filename, format)
+	// Generate output filename with "compressed" prefix
+	baseName := strings.TrimSuffix(handler.Filename, filepath.Ext(handler.Filename))
+	outputFilename := fmt.Sprintf("%d_%s_compressed.%s", timestamp, baseName, format)
 	outputPath := filepath.Join(compressedDir, outputFilename)
 
-	// Create progress tracker (we don't actually use this for the API version)
+	// Create progress tracker
 	progressTracker := archiver.NewProgressCallback(func(bytesWritten, totalSize int64) {
-		// We could implement WebSocket here to report progress to client
 		if totalSize > 0 {
 			percentage := float64(bytesWritten) / float64(totalSize) * 100
 			log.Printf("Compression progress: %.2f%% (%d/%d bytes)", percentage, bytesWritten, totalSize)
@@ -241,7 +262,14 @@ func handleCompressFile(w http.ResponseWriter, r *http.Request) {
 	err = archiver.CompressWithProgress(uploadPath, outputPath, format, progressTracker)
 	if err != nil {
 		log.Printf("Error compressing file: %v", err)
-		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Error compressing file: %v", err))
+		// Try to get more detailed error information
+		if os.IsNotExist(err) {
+			respondWithError(w, http.StatusInternalServerError, "Source file not found")
+		} else if os.IsPermission(err) {
+			respondWithError(w, http.StatusInternalServerError, "Permission denied while compressing file")
+		} else {
+			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Error compressing file: %v", err))
+		}
 		return
 	}
 

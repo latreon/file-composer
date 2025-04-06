@@ -17,7 +17,7 @@ interface CompressionResponse {
 }
 
 export default function Home() {
-    const [format, setFormat] = useState<string>('zip')
+    const [format, setFormat] = useState<string>('')
     const [isLoading, setIsLoading] = useState<boolean>(false)
     const [result, setResult] = useState<CompressionResponse | null>(null)
 
@@ -29,7 +29,11 @@ export default function Home() {
             // Create form data to send the file
             const formData = new FormData()
             formData.append('file', file)
-            formData.append('format', format)
+            
+            // Only append format if it's selected
+            if (format) {
+                formData.append('format', format)
+            }
 
             // Send file to API for compression
             const response = await fetch('/api/compress', {
@@ -86,6 +90,7 @@ export default function Home() {
                     <div className="mt-8">
                         <CompressionResult
                             result={result}
+                            format={format}
                             onReset={() => setResult(null)}
                         />
                     </div>

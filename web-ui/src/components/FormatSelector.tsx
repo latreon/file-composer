@@ -11,28 +11,44 @@ interface Format {
     id: string
     name: string
     description: string
+    icon?: string
 }
 
-const formatInfo: Record<string, { name: string; description: string }> = {
+const formatInfo: Record<string, { name: string; description: string; icon?: string }> = {
+    '': {
+        name: 'Auto Select',
+        description: 'Maintain original file format (e.g., PDF stays as PDF)',
+        icon: '🤖'
+    },
+    pdf: {
+        name: 'PDF Optimize',
+        description: 'Lossless PDF compression while maintaining quality',
+        icon: '📄'
+    },
     zip: {
         name: 'ZIP',
-        description: 'Good balance of compression ratio and compatibility'
+        description: 'Good balance of compression ratio and compatibility',
+        icon: '📦'
     },
     tar: {
         name: 'TAR',
-        description: 'Archive without compression, preserves permissions'
+        description: 'Archive without compression, preserves permissions',
+        icon: '📚'
     },
     gz: {
         name: 'GZIP',
-        description: 'Fast compression, good for text files'
+        description: 'Fast compression, good for text files',
+        icon: '🗜️'
     },
     bz2: {
         name: 'BZIP2',
-        description: 'Better compression than GZIP, but slower'
+        description: 'Better compression than GZIP, but slower',
+        icon: '🗄️'
     },
     xz: {
         name: 'XZ',
-        description: 'Excellent compression ratio, slower speed'
+        description: 'Excellent compression ratio, slower speed',
+        icon: '📥'
     }
 }
 
@@ -47,10 +63,15 @@ export default function FormatSelector({ selected, onSelect, disabled = false }:
                 const response = await fetch('/api/formats')
                 const data = await response.json()
 
-                const formattedFormats = data.formats.map((formatId: string) => ({
+                // Add the auto-select option
+                const allFormats: string[] = ['']
+                allFormats.push(...data.formats)
+
+                const formattedFormats = allFormats.map((formatId: string) => ({
                     id: formatId,
                     name: formatInfo[formatId]?.name || formatId.toUpperCase(),
-                    description: formatInfo[formatId]?.description || 'Compression format'
+                    description: formatInfo[formatId]?.description || 'Compression format',
+                    icon: formatInfo[formatId]?.icon || '📁'
                 }))
 
                 setFormats(formattedFormats)
@@ -60,7 +81,8 @@ export default function FormatSelector({ selected, onSelect, disabled = false }:
                 setFormats(Object.entries(formatInfo).map(([id, info]) => ({
                     id,
                     name: info.name,
-                    description: info.description
+                    description: info.description,
+                    icon: info.icon || '📁'
                 })))
             } finally {
                 setLoading(false)
@@ -70,41 +92,34 @@ export default function FormatSelector({ selected, onSelect, disabled = false }:
         fetchFormats()
     }, [])
 
-    return (
-        <div className="card p-4">
-            <h2 className="text-lg font-semibold mb-4">Select Compression Format</h2>
+    if (loading) {
+        return <div className="animate-pulse h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>
+    }
 
-            {loading ? (
-                <div className="animate-pulse h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {formats.map((format) => (
-                        <button
-                            key={format.id}
-                            className={`p-3 rounded-lg border-2 transition-all ${selected === format.id
-                                    ? 'border-primary bg-primary bg-opacity-10'
-                                    : 'border-gray-200 dark:border-gray-700 hover:border-primary'
-                                }`}
-                            onClick={() => onSelect(format.id)}
-                            disabled={disabled}
-                        >
-                            <div className="flex justify-between items-center">
-                                <span className="font-medium">{format.name}</span>
-                                {selected === format.id && (
-                                    <span className="text-primary">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                        </svg>
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+    return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {formats.map((format) => (
+                <button
+                    key={format.id}
+                    onClick={() => !disabled && onSelect(format.id)}
+                    className={`p-4 rounded-lg border-2 transition-all ${
+                        selected === format.id
+                            ? 'border-primary bg-primary bg-opacity-5'
+                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                    } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                    disabled={disabled}
+                >
+                    <div className="flex items-center space-x-3">
+                        <span className="text-2xl">{format.icon}</span>
+                        <div className="text-left">
+                            <h3 className="font-medium">{format.name}</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
                                 {format.description}
                             </p>
-                        </button>
-                    ))}
-                </div>
-            )}
+                        </div>
+                    </div>
+                </button>
+            ))}
         </div>
     )
 } 

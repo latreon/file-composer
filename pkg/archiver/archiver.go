@@ -3,12 +3,15 @@ package archiver
 import (
 	"archive/zip"
 	"fmt"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/latreon/file-compressor/pkg/utils"
+	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
 
 // Compress compresses files or directories at sourcePath to destPath using the specified format
@@ -21,6 +24,21 @@ func Compress(sourcePath, destPath, format string) error {
 
 	// Validate and select compression format
 	switch strings.ToLower(format) {
+	case "pdf":
+		if !strings.HasSuffix(strings.ToLower(sourcePath), ".pdf") {
+			return fmt.Errorf("source file must be a PDF for PDF compression")
+		}
+		return compressPDF(sourcePath, destPath)
+	case "png":
+		if !strings.HasSuffix(strings.ToLower(sourcePath), ".png") {
+			return fmt.Errorf("source file must be a PNG for PNG compression")
+		}
+		return compressPNG(sourcePath, destPath)
+	case "jpg", "jpeg":
+		if !strings.HasSuffix(strings.ToLower(sourcePath), ".jpg") && !strings.HasSuffix(strings.ToLower(sourcePath), ".jpeg") {
+			return fmt.Errorf("source file must be a JPEG for JPEG compression")
+		}
+		return compressJPEG(sourcePath, destPath)
 	case "zip":
 		return compressZip(sourcePath, destPath, info.IsDir())
 	// TODO: Implement other formats (tar, gz, bz2, xz, 7z)
@@ -61,6 +79,21 @@ func CompressWithProgress(sourcePath, destPath, format string, progressTracker *
 
 	// Validate and select compression format
 	switch strings.ToLower(format) {
+	case "pdf":
+		if !strings.HasSuffix(strings.ToLower(sourcePath), ".pdf") {
+			return fmt.Errorf("source file must be a PDF for PDF compression")
+		}
+		return compressPDF(sourcePath, destPath)
+	case "png":
+		if !strings.HasSuffix(strings.ToLower(sourcePath), ".png") {
+			return fmt.Errorf("source file must be a PNG for PNG compression")
+		}
+		return compressPNG(sourcePath, destPath)
+	case "jpg", "jpeg":
+		if !strings.HasSuffix(strings.ToLower(sourcePath), ".jpg") && !strings.HasSuffix(strings.ToLower(sourcePath), ".jpeg") {
+			return fmt.Errorf("source file must be a JPEG for JPEG compression")
+		}
+		return compressJPEG(sourcePath, destPath)
 	case "zip":
 		return compressZipWithProgress(sourcePath, destPath, info.IsDir(), progressTracker)
 	// TODO: Implement other formats (tar, gz, bz2, xz, 7z)
@@ -69,81 +102,142 @@ func CompressWithProgress(sourcePath, destPath, format string, progressTracker *
 	}
 }
 
-// compressZip compresses files using the ZIP format
-func compressZip(sourcePath, destPath string, isDir bool) error {
-	// First, calculate total size for progress reporting
-	var totalSize int64
-	if isDir {
-		err := filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if !info.IsDir() {
-				totalSize += info.Size()
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("error calculating total size: %w", err)
-		}
-	} else {
-		info, err := os.Stat(sourcePath)
-		if err != nil {
-			return fmt.Errorf("error getting file info: %w", err)
-		}
-		totalSize = info.Size()
+// compressPNG compresses a PNG image with high compression
+func compressPNG(sourcePath, destPath string) error {
+	// Open the source file
+	srcFile, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	// Decode the PNG image
+	img, err := png.Decode(srcFile)
+	if err != nil {
+		return fmt.Errorf("failed to decode PNG: %w", err)
 	}
 
 	// Create the destination file
-	dest, err := os.Create(destPath)
+	dstFile, err := os.Create(destPath)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer dest.Close()
+	defer dstFile.Close()
 
-	// Create a progress writer
-	progressWriter := utils.NewProgressWriter(dest, totalSize, "Compressing")
-	defer progressWriter.Complete()
+	// Create a PNG encoder with best compression
+	encoder := png.Encoder{
+		CompressionLevel: png.BestCompression,
+	}
 
-	// Create a new zip writer with progress tracking
-	zipWriter := zip.NewWriter(progressWriter)
-	defer zipWriter.Close()
-
-	if isDir {
-		// Walk through all files in the directory
-		err = filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			// Skip directories themselves
-			if info.IsDir() {
-				return nil
-			}
-
-			// Create a relative path as zip header name
-			relPath, err := filepath.Rel(sourcePath, path)
-			if err != nil {
-				return fmt.Errorf("failed to get relative path: %w", err)
-			}
-
-			return addFileToZip(zipWriter, path, relPath)
-		})
-
-		if err != nil {
-			return fmt.Errorf("error walking directory: %w", err)
-		}
-	} else {
-		// Single file compression
-		// Use the filename as the zip header name
-		filename := filepath.Base(sourcePath)
-		err = addFileToZip(zipWriter, sourcePath, filename)
-		if err != nil {
-			return fmt.Errorf("failed to add file to zip: %w", err)
-		}
+	// Encode the image with best compression
+	if err := encoder.Encode(dstFile, img); err != nil {
+		return fmt.Errorf("failed to encode PNG: %w", err)
 	}
 
 	return nil
+}
+
+// compressJPEG compresses a JPEG image with high compression
+func compressJPEG(sourcePath, destPath string) error {
+	// Open the source file
+	srcFile, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	// Decode the JPEG image
+	img, err := jpeg.Decode(srcFile)
+	if err != nil {
+		return fmt.Errorf("failed to decode JPEG: %w", err)
+	}
+
+	// Create the destination file
+	dstFile, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer dstFile.Close()
+
+	// Encode the image with very high compression (quality 20 for maximum compression)
+	options := jpeg.Options{
+		Quality: 20, // Lower quality = higher compression
+	}
+
+	if err := jpeg.Encode(dstFile, img, &options); err != nil {
+		return fmt.Errorf("failed to encode JPEG: %w", err)
+	}
+
+	return nil
+}
+
+// compressPDF compresses a PDF file with high compression
+func compressPDF(sourcePath, destPath string) error {
+	// Optimize the PDF with default settings
+	err := api.OptimizeFile(sourcePath, destPath, nil)
+	if err != nil {
+		return fmt.Errorf("failed to compress PDF: %w", err)
+	}
+
+	return nil
+}
+
+// compressZip compresses files or directories into a ZIP archive
+func compressZip(sourcePath, destPath string, isDir bool) error {
+	// Create the ZIP file
+	zipFile, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("failed to create ZIP file: %w", err)
+	}
+	defer zipFile.Close()
+
+	// Create a new ZIP writer with best compression
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	// Walk through the source path
+	err = filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Create a new file in the ZIP archive
+		relPath, err := filepath.Rel(sourcePath, path)
+		if err != nil {
+			return err
+		}
+
+		// Create file header with best compression
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Method = zip.Deflate
+		header.Name = relPath
+
+		zipFile, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		// Open the source file
+		srcFile, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer srcFile.Close()
+
+		// Copy the file contents to the ZIP archive
+		_, err = io.Copy(zipFile, srcFile)
+		return err
+	})
+
+	return err
 }
 
 // compressZipWithProgress compresses files using the ZIP format with progress reporting
