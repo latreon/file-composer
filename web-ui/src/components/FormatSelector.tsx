@@ -29,26 +29,6 @@ const formatInfo: Record<string, { name: string; description: string; icon?: str
         name: 'ZIP',
         description: 'Good balance of compression ratio and compatibility',
         icon: '📦'
-    },
-    tar: {
-        name: 'TAR',
-        description: 'Archive without compression, preserves permissions',
-        icon: '📚'
-    },
-    gz: {
-        name: 'GZIP',
-        description: 'Fast compression, good for text files',
-        icon: '🗜️'
-    },
-    bz2: {
-        name: 'BZIP2',
-        description: 'Better compression than GZIP, but slower',
-        icon: '🗄️'
-    },
-    xz: {
-        name: 'XZ',
-        description: 'Excellent compression ratio, slower speed',
-        icon: '📥'
     }
 }
 

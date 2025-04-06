@@ -3,15 +3,19 @@ package archiver
 import (
 	"archive/zip"
 	"fmt"
+	"image"
 	"image/jpeg"
 	"image/png"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/latreon/file-compressor/pkg/utils"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"golang.org/x/image/draw"
 )
 
 // Compress compresses files or directories at sourcePath to destPath using the specified format
@@ -117,6 +121,39 @@ func compressPNG(sourcePath, destPath string) error {
 		return fmt.Errorf("failed to decode PNG: %w", err)
 	}
 
+	// Get original dimensions
+	originalBounds := img.Bounds()
+	originalWidth := originalBounds.Dx()
+	originalHeight := originalBounds.Dy()
+
+	// Calculate new dimensions (reduce to 80% if large enough)
+	var newWidth, newHeight int
+	if originalWidth > 1000 || originalHeight > 1000 {
+		// For large images, reduce more aggressively
+		newWidth = originalWidth * 7 / 10
+		newHeight = originalHeight * 7 / 10
+	} else if originalWidth > 500 || originalHeight > 500 {
+		// For medium images, reduce moderately
+		newWidth = originalWidth * 8 / 10
+		newHeight = originalHeight * 8 / 10
+	} else {
+		// For small images, don't resize
+		newWidth = originalWidth
+		newHeight = originalHeight
+	}
+
+	// Only resize if dimensions changed
+	if newWidth != originalWidth || newHeight != originalHeight {
+		// Create a new RGBA image
+		dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+		
+		// Resize the image using high-quality resampling
+		draw.CatmullRom.Scale(dst, dst.Bounds(), img, originalBounds, draw.Over, nil)
+		
+		// Use the resized image for compression
+		img = dst
+	}
+
 	// Create the destination file
 	dstFile, err := os.Create(destPath)
 	if err != nil {
@@ -152,6 +189,39 @@ func compressJPEG(sourcePath, destPath string) error {
 		return fmt.Errorf("failed to decode JPEG: %w", err)
 	}
 
+	// Get original dimensions
+	originalBounds := img.Bounds()
+	originalWidth := originalBounds.Dx()
+	originalHeight := originalBounds.Dy()
+
+	// Calculate new dimensions (reduce to 80% if large enough)
+	var newWidth, newHeight int
+	if originalWidth > 1000 || originalHeight > 1000 {
+		// For large images, reduce more aggressively
+		newWidth = originalWidth * 7 / 10
+		newHeight = originalHeight * 7 / 10
+	} else if originalWidth > 500 || originalHeight > 500 {
+		// For medium images, reduce moderately
+		newWidth = originalWidth * 8 / 10
+		newHeight = originalHeight * 8 / 10
+	} else {
+		// For small images, don't resize
+		newWidth = originalWidth
+		newHeight = originalHeight
+	}
+
+	// Only resize if dimensions changed
+	if newWidth != originalWidth || newHeight != originalHeight {
+		// Create a new RGBA image
+		dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+		
+		// Resize the image using high-quality resampling
+		draw.CatmullRom.Scale(dst, dst.Bounds(), img, originalBounds, draw.Over, nil)
+		
+		// Use the resized image for compression
+		img = dst
+	}
+
 	// Create the destination file
 	dstFile, err := os.Create(destPath)
 	if err != nil {
@@ -159,9 +229,9 @@ func compressJPEG(sourcePath, destPath string) error {
 	}
 	defer dstFile.Close()
 
-	// Encode the image with very high compression (quality 20 for maximum compression)
+	// Encode the image with maximum compression (quality 1 for absolute maximum compression)
 	options := jpeg.Options{
-		Quality: 20, // Lower quality = higher compression
+		Quality: 1, // Lowest quality = highest compression
 	}
 
 	if err := jpeg.Encode(dstFile, img, &options); err != nil {
@@ -171,12 +241,106 @@ func compressJPEG(sourcePath, destPath string) error {
 	return nil
 }
 
-// compressPDF compresses a PDF file with high compression
+// compressPDF compresses a PDF file with extreme compression
 func compressPDF(sourcePath, destPath string) error {
-	// Optimize the PDF with default settings
-	err := api.OptimizeFile(sourcePath, destPath, nil)
+	// Create temporary files for multi-stage optimization
+	tempFile1 := destPath + ".temp1"
+	tempDir := destPath + ".tempdir"
+	defer os.Remove(tempFile1) // Clean up when done
+	defer os.RemoveAll(tempDir) // Clean up temp directory when done
+	
+	var err error
+	
+	// Try using Ghostscript for better compression
+	cmd := exec.Command("gs", 
+		"-sDEVICE=pdfwrite",
+		"-dPDFSETTINGS=/screen", // Options: /screen (72dpi), /ebook (150dpi), /printer (300dpi), /prepress (300dpi+)
+		"-dCompatibilityLevel=1.4",
+		"-dNOPAUSE",
+		"-dQUIET",
+		"-dBATCH",
+		"-dColorImageDownsampleType=/Bicubic",
+		"-dColorImageResolution=72",
+		"-dGrayImageDownsampleType=/Bicubic",
+		"-dGrayImageResolution=72",
+		"-dMonoImageDownsampleType=/Bicubic", 
+		"-dMonoImageResolution=72",
+		"-sOutputFile="+destPath,
+		sourcePath)
+	
+	// Try Ghostscript first
+	err = cmd.Run()
+	if err == nil {
+		// Ghostscript succeeded
+		return nil
+	}
+	
+	// Ghostscript not available or failed, create temp directory for processing with pdfcpu
+	err = os.MkdirAll(tempDir, 0755)
 	if err != nil {
-		return fmt.Errorf("failed to compress PDF: %w", err)
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	// Stage 1: Extract and optimize images
+	// Extract images from PDF (if possible)
+	err = api.ExtractImagesFile(sourcePath, tempDir, nil, nil)
+	if err != nil {
+		// If image extraction fails, just proceed with regular optimization
+		fmt.Printf("Warning: Image extraction failed, proceeding with standard optimization: %v\n", err)
+	} else {
+		// Recompress all extracted images with high compression
+		err = filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			
+			// Skip directories
+			if info.IsDir() {
+				return nil
+			}
+			
+			ext := strings.ToLower(filepath.Ext(path))
+			switch ext {
+			case ".jpg", ".jpeg":
+				// Compress JPEG with quality 1
+				return compressJPEG(path, path)
+			case ".png":
+				// Compress PNG with maximum compression
+				return compressPNG(path, path)
+			}
+			
+			return nil
+		})
+		
+		if err != nil {
+			fmt.Printf("Warning: Image recompression failed: %v\n", err)
+		}
+	}
+
+	// Create a configuration with maximum compression settings
+	conf := model.NewDefaultConfiguration()
+	
+	// Enable PDF 1.5 features for better compression
+	conf.Reader15 = true
+	conf.WriteObjectStream = true
+	conf.WriteXRefStream = true
+	
+	// Stage 2: Apply optimization
+	err = api.OptimizeFile(sourcePath, tempFile1, conf)
+	if err != nil {
+		return fmt.Errorf("failed PDF compression: %w", err)
+	}
+	
+	// Stage 3: Convert to PDF 1.5 for better compression
+	finalConf := model.NewDefaultConfiguration()
+	finalConf.Reader15 = true
+	finalConf.WriteObjectStream = true
+	finalConf.WriteXRefStream = true
+	
+	// Apply final optimization
+	err = api.OptimizeFile(tempFile1, destPath, finalConf)
+	if err != nil {
+		return fmt.Errorf("failed final PDF optimization: %w", err)
 	}
 
 	return nil
@@ -193,7 +357,16 @@ func compressZip(sourcePath, destPath string, isDir bool) error {
 
 	// Create a new ZIP writer with best compression
 	zipWriter := zip.NewWriter(zipFile)
+	
+	// Set the default compression level to the best possible compression
+	zipWriter.RegisterCompressor(zip.Deflate, func(out io.Writer) (io.WriteCloser, error) {
+		return utils.NewMaxCompressionWriter(out), nil
+	})
+	
 	defer zipWriter.Close()
+
+	// Use a larger buffer for better compression
+	buffer := make([]byte, 4*1024*1024) // 4MB buffer
 
 	// Walk through the source path
 	err = filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
@@ -232,8 +405,8 @@ func compressZip(sourcePath, destPath string, isDir bool) error {
 		}
 		defer srcFile.Close()
 
-		// Copy the file contents to the ZIP archive
-		_, err = io.Copy(zipFile, srcFile)
+		// Copy the file contents to the ZIP archive using our buffer
+		_, err = io.CopyBuffer(zipFile, srcFile, buffer)
 		return err
 	})
 
@@ -254,7 +427,16 @@ func compressZipWithProgress(sourcePath, destPath string, isDir bool, progressTr
 
 	// Create a new zip writer with progress tracking
 	zipWriter := zip.NewWriter(progressWriter)
+	
+	// Set the default compression level to the best possible compression
+	zipWriter.RegisterCompressor(zip.Deflate, func(out io.Writer) (io.WriteCloser, error) {
+		return utils.NewMaxCompressionWriter(out), nil
+	})
+	
 	defer zipWriter.Close()
+
+	// Use a larger buffer for better compression
+	buffer := make([]byte, 4*1024*1024) // 4MB buffer
 
 	if isDir {
 		// Walk through all files in the directory
@@ -274,7 +456,7 @@ func compressZipWithProgress(sourcePath, destPath string, isDir bool, progressTr
 				return fmt.Errorf("failed to get relative path: %w", err)
 			}
 
-			return addFileToZip(zipWriter, path, relPath)
+			return addFileToZipWithBuffer(zipWriter, path, relPath, buffer)
 		})
 
 		if err != nil {
@@ -284,7 +466,7 @@ func compressZipWithProgress(sourcePath, destPath string, isDir bool, progressTr
 		// Single file compression
 		// Use the filename as the zip header name
 		filename := filepath.Base(sourcePath)
-		err = addFileToZip(zipWriter, sourcePath, filename)
+		err = addFileToZipWithBuffer(zipWriter, sourcePath, filename, buffer)
 		if err != nil {
 			return fmt.Errorf("failed to add file to zip: %w", err)
 		}
@@ -327,6 +509,45 @@ func addFileToZip(zipWriter *zip.Writer, filePath, zipPath string) error {
 	}
 
 	_, err = io.Copy(writer, file)
+	if err != nil {
+		return fmt.Errorf("failed to write file to zip: %w", err)
+	}
+
+	return nil
+}
+
+// addFileToZipWithBuffer adds a file to the zip archive using a buffer
+func addFileToZipWithBuffer(zipWriter *zip.Writer, filePath, zipPath string, buffer []byte) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", filePath, err)
+	}
+	defer file.Close()
+
+	// Get file info for header
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+
+	// Create zip header
+	header, err := zip.FileInfoHeader(info)
+	if err != nil {
+		return fmt.Errorf("failed to create zip header: %w", err)
+	}
+
+	// Use the provided zip path for the header name
+	header.Name = zipPath
+	// Use best compression
+	header.Method = zip.Deflate
+
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		return fmt.Errorf("failed to create zip header: %w", err)
+	}
+
+	// Copy contents with progress tracking
+	_, err = io.CopyBuffer(writer, file, buffer)
 	if err != nil {
 		return fmt.Errorf("failed to write file to zip: %w", err)
 	}

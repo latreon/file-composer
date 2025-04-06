@@ -155,7 +155,7 @@ func removeOldFiles(dir string) {
 
 // handleGetFormats returns the supported compression formats
 func handleGetFormats(w http.ResponseWriter, r *http.Request) {
-	formats := []string{"pdf", "zip", "tar", "gz", "bz2", "xz", "png", "jpg", "jpeg"}
+	formats := []string{"pdf", "zip", "png", "jpg", "jpeg"}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

@@ -69,5 +69,5 @@ func printUsage() {
 	fmt.Println("  file-compressor compress <source> <destination> [format]")
 	fmt.Println("  file-compressor extract <source> <destination>")
 	fmt.Println()
-	fmt.Println("Supported formats: zip, tar, gz, bz2, xz")
+	fmt.Println("Supported formats: zip, pdf, png, jpg, jpeg")
 }

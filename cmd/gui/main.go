@@ -93,7 +93,7 @@ func main() {
 
 	// Format selection
 	formatLabel := widget.NewLabel("Compression Format:")
-	formatSelect := widget.NewSelect([]string{"zip", "tar", "gz", "bz2", "xz"}, func(value string) {
+	formatSelect := widget.NewSelect([]string{"zip", "pdf", "png", "jpg", "jpeg"}, func(value string) {
 		state.format = value
 
 		// Update destination extension if we have a source
